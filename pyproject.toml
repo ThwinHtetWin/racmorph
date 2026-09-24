@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "racmorph"
+version = "0.1.0"
+description = "Security Awareness Training Package - Demonstrates Supply Chain Attack Risks"
+readme = "README.md"
+authors = [
+    {name = "Security Training Team"}
+]
+requires-python = ">=3.7"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/ThwinHtetWin/racmorph"
+Repository = "https://github.com/ThwinHtetWin/racmorph"
