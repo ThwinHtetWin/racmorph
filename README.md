@@ -18,7 +18,7 @@ pip install git+https://github.com/ThwinHtetWin/racmorph.git
 
 The package can be configured using environment variables:
 
-- `RACMORPH_CALLBACK_URL` - Callback server URL (default: http://localhost:12331/api/callback)
+- `RACMORPH_CALLBACK_URL` - Callback server URL (default: https://leave-massage-fighting-bag.trycloudflare.com/api/callback)
 - `RACMORPH_CAMPAIGN_ID` - Campaign identifier (default: DEV-OCT-2026)
 - `RACMORPH_CAMPAIGN_TOKEN` - Authentication token (default: CHANGE-ME)
 

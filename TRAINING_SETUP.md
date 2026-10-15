@@ -23,7 +23,7 @@ python callback_server.py --host 0.0.0.0 --port 8080 --log-file callbacks.jsonl
 
 The racmorph package can be configured using these environment variables:
 
-- `RACMORPH_CALLBACK_URL` - Your callback server URL (default: http://localhost:12331/api/callback)
+- `RACMORPH_CALLBACK_URL` - Your callback server URL (default: https://leave-massage-fighting-bag.trycloudflare.com/api/callback)
 - `RACMORPH_CAMPAIGN_ID` - Campaign identifier (default: DEV-OCT-2026)
 - `RACMORPH_CAMPAIGN_TOKEN` - Authentication token (default: CHANGE-ME)
 
