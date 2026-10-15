@@ -1,93 +1,85 @@
 # Security Awareness Training Setup Guide
 
-## Package Repository
-- **GitHub Repository**: https://github.com/ThwinHtetWin/racmorph
-- **Type**: Private repository
-- **Campaign**: DEV-OCT-2026
+Trainer-facing runbook for **DEV-OCT-2026** (Oct Awareness Training). This is not a participant handout.
 
-## Callback Server Setup
+- **Package:** https://github.com/ThwinHtetWin/racmorph (private)
+- **Lab (what developers clone):** https://github.com/ThwinHtetWin/secure-pipelines-lab
 
-The callback server is located at `/Users/raccoon/callback_server.py` and logs all callbacks in JSON format.
+## What developers do (stock lab only)
 
-### Starting the Callback Server
+Participants follow the lab README and nothing else:
 
 ```bash
-# Default (listens on 0.0.0.0:12331, logs to training_callbacks.jsonl)
-python callback_server.py
-
-# Custom configuration
-python callback_server.py --host 0.0.0.0 --port 8080 --log-file callbacks.jsonl
+git clone https://github.com/ThwinHtetWin/secure-pipelines-lab.git
+cd secure-pipelines-lab
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python app.py
 ```
 
-### Environment Variables for Package
+That is the proven flow. The dashboard listens on `http://localhost:5000`.
 
-The racmorph package can be configured using these environment variables:
+**Do not** ask developers to:
 
-- `RACMORPH_CALLBACK_URL` - Your callback server URL (default: https://leave-massage-fighting-bag.trycloudflare.com/api/callback)
-- `RACMORPH_CAMPAIGN_ID` - Campaign identifier (default: DEV-OCT-2026)
-- `RACMORPH_CAMPAIGN_TOKEN` - Authentication token (default: CHANGE-ME)
+- Set `RACMORPH_CALLBACK_URL`, `RACMORPH_CAMPAIGN_ID`, or `RACMORPH_CAMPAIGN_TOKEN`
+- Clone or `pip install` racmorph themselves (`pip install -e .`, `pip install git+…`)
+- Run `python -c` to import the callback
+- `curl` the collector
+- Copy `.pth` files by hand or run `setup.py install --install-data`
 
-## Installation Instructions for Developers (Training Participants)
+## What happens on Flask start
 
-After your security awareness presentation, instruct developers to:
+1. Stock `secure-pipelines-lab/requirements.txt` installs racmorph from GitHub **`main`**:
+   `git+https://github.com/ThwinHtetWin/racmorph.git@main#egg=racmorph`
+2. `pip install` places `racmorph.pth` at the **site-packages root** (next to the `racmorph/` package), not the virtualenv prefix. That is already how `main` packages the file.
+3. `python app.py` starts a normal interpreter. Python auto-imports `.pth` files from site-packages, so `import racmorph.callback` runs without any extra command.
+4. The callback POSTs identity JSON to `/api/callback` on the configured collector.
 
-### Option 1: Install from GitHub (Recommended for Training)
+Anyone who followed the lab README and whose callback arrived **needs further training**.
 
-```bash
-# Clone the repository
-git clone https://github.com/ThwinHtetWin/racmorph.git
-cd racmorph
+## Trainer collector
 
-# Install the package
-pip install -e .
-```
+Stand up a real HTTP collector that accepts:
 
-This will automatically trigger the callback when Python starts.
+- **Method / path:** `POST /api/callback`
+- **Body:** JSON (`Content-Type: application/json`)
+- **User-Agent:** `Developer-Security-Awareness-Simulation/1.0`
 
-### Option 2: Direct Install from GitHub
+Log the JSON. If your server wraps the body with connection metadata (peer address, receive time), that is collector-side logging, not data the package collected.
 
-```bash
-pip install git+https://github.com/ThwinHtetWin/racmorph.git
-```
+The package on `main` currently defaults to the live demo tunnel:
 
-## How It Works
+`https://leave-massage-fighting-bag.trycloudflare.com/api/callback`
 
-1. **Package Installation**: `pip install` (including `pip install -r requirements.txt` / `git+https://...` from the lab) places `racmorph.pth` at the **site-packages root** (next to the `racmorph/` package), not the virtualenv prefix. Python only auto-imports `.pth` files from site-packages, so a normal `python app.py` runs the callback.
-2. **Automatic Execution**: Every time Python starts, site-packages `racmorph.pth` triggers `import racmorph.callback`
-3. **OS detection first**: the callback labels the host as `windows`, `linux`, or `darwin` (simple platform label only)
-4. **Data Collection**: after OS detection, it collects **only identity** with the matching API, so trainers can tell which developer needs further training:
-   - **Windows:** extended username via `GetUserNameExW` (`ctypes` / `secur32`, `NameSamCompatible` / `DOMAIN\username`) in `extended_username`, plus simple `username` fallback (`getpass.getuser()`). Use `extended_username` for follow-up training. Most participants use Windows laptops.
-   - **Linux:** login identity via `pwd.getpwuid` (process login name) in `username`. Does not call `GetUserNameExW`.
-   - **macOS:** login identity via the console user (`SCDynamicStoreCopyConsoleUser`) when available, otherwise `pwd.getpwuid`, in `username`. Does not call `GetUserNameExW`.
-   - **Other OS:** skip Windows/Linux/macOS APIs; `username` fallback only. Do not collect extra fields to compensate.
-   - **Every event:** `event_time_mmt` — date and time in Myanmar Time using IANA `Asia/Yangon` via `zoneinfo` (not a hardcoded UTC offset). Example: `2026-10-16 03:19:45 MMT (Asia/Yangon)`.
-   - Campaign ID and campaign token (package configuration, not host inventory)
-5. **What is not collected**: hostname, IP, MAC, processes, files, clipboard, keystrokes, environment variables, credentials, or other system inventory. Non-matching OS APIs are skipped and never crash Python startup.
-6. **Callback**: The identity payload is sent to your configured callback server. Destination and behavior are unchanged.
+Use that only while it is the session collector. For your own session, point the **package default** at **your** collector (see below) so developers still do not set any env vars.
 
-## Viewing Training Results
+An example local collector (not in this repo) is `callback_server.py` on the trainer machine (default listen `0.0.0.0:12331`, log `training_callbacks.jsonl`). Any HTTP service that accepts the POST above is fine. Developers must reach it from their laptops.
 
-Check the JSON log file (default: `training_callbacks.jsonl`) for entries:
+### Pointing the package at your collector (trainer-side only)
 
-```bash
-# View all callbacks
-cat training_callbacks.jsonl | jq
+Developers never set `RACMORPH_*`. They get whatever default is on the racmorph git ref the lab installs (`main`).
 
-# Developers who need follow-up training (Windows extended username, else login name)
-cat training_callbacks.jsonl | jq -r '.data.extended_username // .data.username' | sort -u
+1. **Package default (required for the stock lab path):** change the `RACMORPH_CALLBACK_URL` default in `racmorph/callback.py` to `https://<your-collector>/api/callback` and push that to **`main`** before the session. `pip install -r requirements.txt` then POSTs to you.
+2. **Env override (trainer machines only):** `RACMORPH_CALLBACK_URL`, `RACMORPH_CAMPAIGN_ID` (default `DEV-OCT-2026`), and `RACMORPH_CAMPAIGN_TOKEN` (default `CHANGE-ME`) are read at import if already set. Use them when you test the package yourself. Do not add them to lab instructions or ask participants to export them.
 
-# Count unique identities
-cat training_callbacks.jsonl | jq -r '.data.extended_username // .data.username' | sort -u | wc -l
+The callback does nothing if the URL is empty or contains `YOUR-CONTROLLED-DOMAIN`.
 
-# When each install ran (Myanmar time)
-cat training_callbacks.jsonl | jq -r '[.data.event_time_mmt, .data.platform, (.data.extended_username // .data.username)] | @tsv'
-```
+## Identity payload (who needs further training)
 
-Use `extended_username` (GetUserNameExW) as the primary key on Windows. On Linux and macOS, use `username` from the OS login API. `event_time_mmt` is Myanmar Time for every event.
+OS is detected first (`platform`: `windows` / `linux` / `darwin`). Then **only** the matching login API runs. No hostname, IP, MAC, processes, files, clipboard, keystrokes, or other inventory.
 
-## Example Callback Entry
+| Field | When | Source |
+|---|---|---|
+| `campaign_id` / `campaign_token` / `event` | always | package config (`event` is `training_package_executed`) |
+| `platform` | always | OS detect |
+| `event_time_mmt` | always | Myanmar Time via `zoneinfo` `Asia/Yangon` (not a hardcoded offset), e.g. `2026-10-16 03:19:45 MMT (Asia/Yangon)` |
+| `username` | always | Windows: `getpass` fallback; Linux: `pwd.getpwuid`; macOS: console user then `pwd` |
+| `extended_username` | Windows only, if `GetUserNameExW` succeeds | `GetUserNameExW` `NameSamCompatible` (`DOMAIN\username`) |
 
-Package payload on Windows (GetUserNameExW succeeded):
+Use **`extended_username`** (Windows) or **`username`** (Linux / macOS) to see who needs further training. Use `event_time_mmt` for when it ran.
+
+Windows example:
 
 ```json
 {
@@ -101,72 +93,27 @@ Package payload on Windows (GetUserNameExW succeeded):
 }
 ```
 
-Package payload on Linux (`pwd.getpwuid`):
+Linux / macOS omit `extended_username`.
 
-```json
-{
-  "campaign_id": "DEV-OCT-2026",
-  "campaign_token": "CHANGE-ME",
-  "event": "training_package_executed",
-  "platform": "linux",
-  "event_time_mmt": "2026-10-16 03:19:45 MMT (Asia/Yangon)",
-  "username": "jane.doe"
-}
+```bash
+# Unique identities that need follow-up
+cat training_callbacks.jsonl | jq -r '.data.extended_username // .data.username' | sort -u
+
+# When / OS / who (Myanmar time)
+cat training_callbacks.jsonl | jq -r '[.data.event_time_mmt, .data.platform, (.data.extended_username // .data.username)] | @tsv'
 ```
 
-Package payload on macOS (console user / `pwd`):
+If your log stores the JSON body at the top level (no `.data` wrapper), drop `.data` in the `jq` paths.
 
-```json
-{
-  "campaign_id": "DEV-OCT-2026",
-  "campaign_token": "CHANGE-ME",
-  "event": "training_package_executed",
-  "platform": "darwin",
-  "event_time_mmt": "2026-10-16 03:19:45 MMT (Asia/Yangon)",
-  "username": "jane.doe"
-}
-```
+## Training flow
 
-If your collector wraps the POST body, it may add its own connection metadata (timestamp, peer address). That is collector-side logging, not data collected by this package. Prefer `event_time_mmt` for when the training callback ran.
+1. **Setup (trainers):** start your collector; point racmorph `main` at `https://<your-collector>/api/callback`; confirm `pip install` still puts `racmorph.pth` in site-packages (already true on `main`).
+2. **Presentation:** supply-chain attacks and untrusted packages. Do not walk participants through racmorph install tricks.
+3. **Lab:** give only the stock `secure-pipelines-lab` README steps. Watch `POST /api/callback`.
+4. **Debrief:** show who callbacked (`extended_username` / `username`); explain `.pth` auto-import after `pip install -r requirements.txt`; discuss pinning and trusting dependencies (lab Exercise 4).
 
-## Training Flow
+## Security notes
 
-1. **Setup Phase**:
-   - Start your callback server with appropriate configuration
-   - Ensure it's accessible from developers' machines
-   - Set environment variables if using custom callback URL
-
-2. **Presentation Phase**:
-   - Deliver security awareness training on supply chain attacks
-   - Explain risks of installing untrusted packages
-
-3. **Testing Phase**:
-   - At the end, provide installation instructions
-   - Monitor your callback server for incoming requests
-   - Those who install = failed the test (teachable moment!)
-
-4. **Debrief Phase**:
-   - Show them the callback logs
-   - Identify developers who need further training from `extended_username` (Windows / GetUserNameExW) or `username` (Linux / macOS login identity)
-   - Use `event_time_mmt` (Myanmar Time, Asia/Yangon) to see when each callback ran
-   - Explain how the .pth file works
-   - Discuss defensive measures
-
-## Publishing to GitHub Packages (Optional)
-
-If you want to publish to GitHub Package Registry instead of just having developers clone:
-
-1. Create a GitHub Personal Access Token with `write:packages` scope
-2. Configure `.pypirc` for GitHub Packages
-3. Upload using twine to GitHub Packages endpoint
-
-For now, direct installation from the GitHub repository works perfectly for training purposes.
-
-## Security Notes
-
-- This is a **controlled training tool** for security awareness
-- **Identity only, per OS:** Windows `GetUserNameExW` plus username fallback; Linux `pwd.getpwuid`; macOS console user / `pwd`. Nothing else is collected.
-- Every event includes Myanmar Time (`event_time_mmt`, IANA `Asia/Yangon` via `zoneinfo`) and a simple `platform` label (`windows` / `linux` / `darwin`)
-- No hostname, IP, MAC, process list, filesystem, clipboard, keystroke, or credential harvesting
-- Callback can be disabled by not setting a valid URL
-- All code is visible in the repository for transparency
+- Controlled awareness tool. All package code is in this repository.
+- Identity only, per OS. Nothing else is collected.
+- `pip install` from git on `main` is enough; no extra `.pth` install steps.
