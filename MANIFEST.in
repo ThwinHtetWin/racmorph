@@ -1,0 +1,3 @@
+include racmorph.pth
+include README.md
+include TRAINING_SETUP.md
