@@ -54,12 +54,16 @@ pip install git+https://github.com/ThwinHtetWin/racmorph.git
 
 1. **Package Installation**: When developers install the package, the `.pth` file is copied to their Python site-packages directory
 2. **Automatic Execution**: Every time Python starts, the `.pth` file triggers `import racmorph.callback`
-3. **Data Collection**: The callback collects **only identity**, so trainers can tell which developer needs further training:
-   - **Windows extended username** via `GetUserNameExW` (`ctypes` / `secur32`, `NameSamCompatible` / `DOMAIN\username`). This is the identity to use for follow-up training. Most participants use Windows laptops.
-   - **Simple username fallback** (`getpass.getuser()`), used when `GetUserNameExW` is unavailable (non-Windows, or the API call fails)
+3. **OS detection first**: the callback labels the host as `windows`, `linux`, or `darwin` (simple platform label only)
+4. **Data Collection**: after OS detection, it collects **only identity** with the matching API, so trainers can tell which developer needs further training:
+   - **Windows:** extended username via `GetUserNameExW` (`ctypes` / `secur32`, `NameSamCompatible` / `DOMAIN\username`) in `extended_username`, plus simple `username` fallback (`getpass.getuser()`). Use `extended_username` for follow-up training. Most participants use Windows laptops.
+   - **Linux:** login identity via `pwd.getpwuid` (process login name) in `username`. Does not call `GetUserNameExW`.
+   - **macOS:** login identity via the console user (`SCDynamicStoreCopyConsoleUser`) when available, otherwise `pwd.getpwuid`, in `username`. Does not call `GetUserNameExW`.
+   - **Other OS:** skip Windows/Linux/macOS APIs; `username` fallback only. Do not collect extra fields to compensate.
+   - **Every event:** `event_time_mmt` — date and time in Myanmar Time using IANA `Asia/Yangon` via `zoneinfo` (not a hardcoded UTC offset). Example: `2026-10-16 03:19:45 MMT (Asia/Yangon)`.
    - Campaign ID and campaign token (package configuration, not host inventory)
-4. **What is not collected**: hostname, IP, MAC, processes, files, clipboard, keystrokes, environment variables, credentials, or other system inventory. Non-Windows hosts skip `GetUserNameExW` and do not collect extra fields to compensate.
-5. **Callback**: The identity payload is sent to your configured callback server. Destination and behavior are unchanged.
+5. **What is not collected**: hostname, IP, MAC, processes, files, clipboard, keystrokes, environment variables, credentials, or other system inventory. Non-matching OS APIs are skipped and never crash Python startup.
+6. **Callback**: The identity payload is sent to your configured callback server. Destination and behavior are unchanged.
 
 ## Viewing Training Results
 
@@ -69,14 +73,17 @@ Check the JSON log file (default: `training_callbacks.jsonl`) for entries:
 # View all callbacks
 cat training_callbacks.jsonl | jq
 
-# Developers who need follow-up training (prefer extended username)
+# Developers who need follow-up training (Windows extended username, else login name)
 cat training_callbacks.jsonl | jq -r '.data.extended_username // .data.username' | sort -u
 
 # Count unique identities
 cat training_callbacks.jsonl | jq -r '.data.extended_username // .data.username' | sort -u | wc -l
+
+# When each install ran (Myanmar time)
+cat training_callbacks.jsonl | jq -r '[.data.event_time_mmt, .data.platform, (.data.extended_username // .data.username)] | @tsv'
 ```
 
-Use `extended_username` (GetUserNameExW) as the primary key for who needs further training. Fall back to `username` only when the extended name is absent.
+Use `extended_username` (GetUserNameExW) as the primary key on Windows. On Linux and macOS, use `username` from the OS login API. `event_time_mmt` is Myanmar Time for every event.
 
 ## Example Callback Entry
 
@@ -87,23 +94,40 @@ Package payload on Windows (GetUserNameExW succeeded):
   "campaign_id": "DEV-OCT-2026",
   "campaign_token": "CHANGE-ME",
   "event": "training_package_executed",
+  "platform": "windows",
+  "event_time_mmt": "2026-10-16 03:19:45 MMT (Asia/Yangon)",
   "username": "jane.doe",
   "extended_username": "CORP\\jane.doe"
 }
 ```
 
-Package payload on non-Windows (GetUserNameExW skipped; username fallback only):
+Package payload on Linux (`pwd.getpwuid`):
 
 ```json
 {
   "campaign_id": "DEV-OCT-2026",
   "campaign_token": "CHANGE-ME",
   "event": "training_package_executed",
+  "platform": "linux",
+  "event_time_mmt": "2026-10-16 03:19:45 MMT (Asia/Yangon)",
   "username": "jane.doe"
 }
 ```
 
-If your collector wraps the POST body, it may add its own connection metadata (timestamp, peer address). That is collector-side logging, not data collected by this package.
+Package payload on macOS (console user / `pwd`):
+
+```json
+{
+  "campaign_id": "DEV-OCT-2026",
+  "campaign_token": "CHANGE-ME",
+  "event": "training_package_executed",
+  "platform": "darwin",
+  "event_time_mmt": "2026-10-16 03:19:45 MMT (Asia/Yangon)",
+  "username": "jane.doe"
+}
+```
+
+If your collector wraps the POST body, it may add its own connection metadata (timestamp, peer address). That is collector-side logging, not data collected by this package. Prefer `event_time_mmt` for when the training callback ran.
 
 ## Training Flow
 
@@ -123,7 +147,8 @@ If your collector wraps the POST body, it may add its own connection metadata (t
 
 4. **Debrief Phase**:
    - Show them the callback logs
-   - Identify developers who need further training from `extended_username` (GetUserNameExW)
+   - Identify developers who need further training from `extended_username` (Windows / GetUserNameExW) or `username` (Linux / macOS login identity)
+   - Use `event_time_mmt` (Myanmar Time, Asia/Yangon) to see when each callback ran
    - Explain how the .pth file works
    - Discuss defensive measures
 
@@ -140,7 +165,8 @@ For now, direct installation from the GitHub repository works perfectly for trai
 ## Security Notes
 
 - This is a **controlled training tool** for security awareness
-- **Identity only**: Windows extended username via GetUserNameExW, plus a simple username fallback. Nothing else is collected.
+- **Identity only, per OS:** Windows `GetUserNameExW` plus username fallback; Linux `pwd.getpwuid`; macOS console user / `pwd`. Nothing else is collected.
+- Every event includes Myanmar Time (`event_time_mmt`, IANA `Asia/Yangon` via `zoneinfo`) and a simple `platform` label (`windows` / `linux` / `darwin`)
 - No hostname, IP, MAC, process list, filesystem, clipboard, keystroke, or credential harvesting
 - Callback can be disabled by not setting a valid URL
 - All code is visible in the repository for transparency
