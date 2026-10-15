@@ -2,7 +2,6 @@
 import getpass
 import json
 import os
-import socket
 import urllib.request
 import urllib.error
 
@@ -11,41 +10,72 @@ CALLBACK_URL = os.environ.get('RACMORPH_CALLBACK_URL', 'http://localhost:12331/a
 CAMPAIGN_ID = os.environ.get('RACMORPH_CAMPAIGN_ID', 'DEV-OCT-2026')
 CAMPAIGN_TOKEN = os.environ.get('RACMORPH_CAMPAIGN_TOKEN', 'CHANGE-ME')
 
+# EXTENDED_NAME_FORMAT: NameSamCompatible (DOMAIN\username)
+_NAME_SAM_COMPATIBLE = 2
+
+
+def _get_windows_extended_username():
+    """
+    Return the Windows extended username from GetUserNameExW (secur32).
+
+    Non-Windows hosts skip this call and return None. Failures never raise.
+    """
+
+    if os.name != "nt":
+        return None
+
+    try:
+        import ctypes
+
+        secur32 = ctypes.WinDLL("secur32", use_last_error=True)
+        GetUserNameExW = secur32.GetUserNameExW
+        GetUserNameExW.argtypes = [
+            ctypes.c_int,
+            ctypes.c_wchar_p,
+            ctypes.POINTER(ctypes.c_ulong),
+        ]
+        GetUserNameExW.restype = ctypes.c_int
+
+        size = ctypes.c_ulong(1024)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if not GetUserNameExW(_NAME_SAM_COMPATIBLE, buffer, ctypes.byref(size)):
+            return None
+        name = buffer.value
+        if not name:
+            return None
+        return name
+    except Exception:
+        return None
+
 
 def collect_training_telemetry():
     """
-    Collect ONLY:
-      - hostname
-      - username
-      - locally resolved IP address
+    Collect ONLY identity needed to know who needs follow-up training:
 
-    No environment variables, files, credentials, browser data,
-    SSH keys, tokens, or other host information are collected.
+      - Windows extended username via GetUserNameExW (ctypes/secur32)
+      - simple username fallback (getpass)
+
+    No hostname, IP, MAC, processes, files, clipboard, keystrokes,
+    environment variables, credentials, or other host inventory.
     """
-
-    try:
-        hostname = socket.gethostname()
-    except Exception:
-        hostname = "unknown"
 
     try:
         username = getpass.getuser()
     except Exception:
         username = "unknown"
 
-    try:
-        ip = socket.gethostbyname(hostname)
-    except Exception:
-        ip = "unknown"
-
-    return {
+    payload = {
         "campaign_id": CAMPAIGN_ID,
         "campaign_token": CAMPAIGN_TOKEN,
         "event": "training_package_executed",
-        "hostname": hostname,
         "username": username,
-        "ip": ip,
     }
+
+    extended_username = _get_windows_extended_username()
+    if extended_username:
+        payload["extended_username"] = extended_username
+
+    return payload
 
 
 def send_training_event():
