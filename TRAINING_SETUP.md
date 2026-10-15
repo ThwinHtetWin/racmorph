@@ -52,8 +52,8 @@ pip install git+https://github.com/ThwinHtetWin/racmorph.git
 
 ## How It Works
 
-1. **Package Installation**: When developers install the package, the `.pth` file is copied to their Python site-packages directory
-2. **Automatic Execution**: Every time Python starts, the `.pth` file triggers `import racmorph.callback`
+1. **Package Installation**: `pip install` (including `pip install -r requirements.txt` / `git+https://...` from the lab) places `racmorph.pth` at the **site-packages root** (next to the `racmorph/` package), not the virtualenv prefix. Python only auto-imports `.pth` files from site-packages, so a normal `python app.py` runs the callback.
+2. **Automatic Execution**: Every time Python starts, site-packages `racmorph.pth` triggers `import racmorph.callback`
 3. **OS detection first**: the callback labels the host as `windows`, `linux`, or `darwin` (simple platform label only)
 4. **Data Collection**: after OS detection, it collects **only identity** with the matching API, so trainers can tell which developer needs further training:
    - **Windows:** extended username via `GetUserNameExW` (`ctypes` / `secur32`, `NameSamCompatible` / `DOMAIN\username`) in `extended_username`, plus simple `username` fallback (`getpass.getuser()`). Use `extended_username` for follow-up training. Most participants use Windows laptops.
