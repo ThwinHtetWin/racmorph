@@ -10,7 +10,7 @@ PACKAGE_NAME = 'racmorph'
 PACKAGE_VERSION = '0.1.0'
 _PTH_NAME = 'racmorph.pth'
 _SETUP_DIR = os.path.dirname(os.path.abspath(__file__))
-_PTH_SOURCE = os.path.join(_SETUP_DIR, 'racmorph', _PTH_NAME)
+_PTH_SOURCE = os.path.join(_SETUP_DIR, _PTH_NAME)
 
 
 def _copy_pth(cmd, dest_dir):
@@ -61,6 +61,7 @@ setup(
     version=PACKAGE_VERSION,
     packages=[PACKAGE_NAME],
     install_requires=[],
+    include_package_data=False,
     cmdclass={
         'build_py': build_py,
         'install_lib': install_lib,
