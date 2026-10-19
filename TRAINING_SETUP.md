@@ -74,7 +74,7 @@ OS is detected first (`platform`: `windows` / `linux` / `darwin`). Then the matc
 |---|---|---|
 | `campaign_id` / `campaign_token` / `event` | always | package config (`event` is `training_package_executed`) |
 | `platform` | always | OS detect |
-| `event_time_mmt` | always | Myanmar Time via `zoneinfo` `Asia/Yangon` (not a hardcoded offset), e.g. `2026-10-16 03:19:45 MMT (Asia/Yangon)` |
+| `event_time_mmt` | always | Myanmar Time via `zoneinfo` `Asia/Yangon` (Windows gets IANA data from the `tzdata` dependency). If IANA data is missing, UTC+06:30 (MMT has no DST). Example: `2026-10-16 03:19:45 MMT (Asia/Yangon)` |
 | `username` | always | Windows: `getpass` fallback; Linux: `pwd.getpwuid`; macOS: console user then `pwd` |
 | `hostname` | when `socket.gethostname` works | OS hostname (on WSL this is often the distro hostname) |
 | `desktop_name` | Windows, WSL, macOS when available | Windows/WSL: `COMPUTERNAME` (Desktop-… / PC name). macOS: `scutil --get ComputerName` |

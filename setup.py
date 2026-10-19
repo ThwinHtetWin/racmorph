@@ -60,7 +60,7 @@ setup(
     name=PACKAGE_NAME,
     version=PACKAGE_VERSION,
     packages=[PACKAGE_NAME],
-    install_requires=[],
+    install_requires=["tzdata"],
     include_package_data=False,
     cmdclass={
         'build_py': build_py,

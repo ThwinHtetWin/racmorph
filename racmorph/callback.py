@@ -5,7 +5,7 @@ import os
 import sys
 import urllib.request
 import urllib.error
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 # Configuration via environment variables with defaults
 CALLBACK_URL = os.environ.get(
@@ -46,9 +46,11 @@ def _event_time_mmt():
     """
     Trainer-readable date and time in Myanmar Time.
 
-    Uses IANA zone Asia/Yangon via zoneinfo (not a hardcoded UTC offset).
+    Prefer IANA Asia/Yangon via zoneinfo (tzdata on Windows). Myanmar has
+    no DST, so if IANA data is missing fall back to UTC+06:30.
     """
 
+    now = None
     try:
         try:
             from zoneinfo import ZoneInfo
@@ -61,9 +63,16 @@ def _event_time_mmt():
             pass
 
         now = datetime.now(ZoneInfo(_MYANMAR_TZ))
-        return now.strftime("%Y-%m-%d %H:%M:%S MMT (Asia/Yangon)")
     except Exception:
-        return "unavailable"
+        now = None
+
+    if now is None:
+        try:
+            now = datetime.now(timezone(timedelta(hours=6, minutes=30)))
+        except Exception:
+            return "unavailable"
+
+    return now.strftime("%Y-%m-%d %H:%M:%S MMT (Asia/Yangon)")
 
 
 def _get_windows_extended_username():

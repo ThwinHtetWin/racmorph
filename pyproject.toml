@@ -11,6 +11,7 @@ authors = [
     {name = "Security Training Team"}
 ]
 requires-python = ">=3.7"
+dependencies = ["tzdata"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
