@@ -117,6 +117,130 @@ def _linux_login_identity():
     return None
 
 
+def _is_wsl():
+    """True when this Linux process is running inside Windows Subsystem for Linux."""
+
+    if _detect_platform() != "linux":
+        return False
+    if os.environ.get("WSL_DISTRO_NAME"):
+        return True
+    for path in ("/proc/sys/kernel/osrelease", "/proc/version"):
+        try:
+            text = open(path, encoding="utf-8").read().lower()
+        except Exception:
+            continue
+        if "microsoft" in text or "wsl" in text:
+            return True
+    return False
+
+
+def _run_short(argv):
+    """Run a short command; return first stdout line or None. Never raises."""
+
+    try:
+        import subprocess
+
+        out = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if out.returncode != 0:
+            return None
+        lines = (out.stdout or "").strip().splitlines()
+        if not lines:
+            return None
+        value = lines[0].strip()
+        if not value or value.lower() in ("unknown", "%username%", "%userdomain%\\%username%"):
+            return None
+        return value
+    except Exception:
+        return None
+
+
+def _wsl_windows_identity():
+    """
+    WSL only: Windows login identity via whoami.exe / cmd.exe.
+
+    Native Linux (not WSL) returns {}. Failures never raise.
+    No hostname, IP, or other host inventory.
+    """
+
+    result = {}
+    if not _is_wsl():
+        return result
+
+    result["wsl"] = True
+    distro = os.environ.get("WSL_DISTRO_NAME")
+    if distro:
+        result["wsl_distro"] = distro
+
+    whoami_bins = (
+        "/mnt/c/Windows/System32/whoami.exe",
+        "/mnt/c/WINDOWS/system32/whoami.exe",
+        "whoami.exe",
+    )
+    cmd_bins = (
+        "/mnt/c/Windows/System32/cmd.exe",
+        "/mnt/c/WINDOWS/system32/cmd.exe",
+        "cmd.exe",
+    )
+
+    whoami_path = None
+    for candidate in whoami_bins:
+        if candidate.startswith("/") and not os.path.isfile(candidate):
+            continue
+        if not candidate.startswith("/"):
+            try:
+                import shutil
+
+                found = shutil.which(candidate)
+            except Exception:
+                found = None
+            if not found:
+                continue
+            candidate = found
+        whoami_path = candidate
+        sam = _run_short([candidate])
+        if sam:
+            result["extended_username"] = sam
+            if "\\" in sam:
+                result["windows_username"] = sam.split("\\", 1)[-1]
+            break
+
+    if whoami_path:
+        upn = _run_short([whoami_path, "/upn"])
+        if upn and "@" in upn:
+            result["upn"] = upn
+
+    if "extended_username" not in result:
+        for candidate in cmd_bins:
+            if candidate.startswith("/") and not os.path.isfile(candidate):
+                continue
+            if not candidate.startswith("/"):
+                try:
+                    import shutil
+
+                    found = shutil.which(candidate)
+                except Exception:
+                    found = None
+                if not found:
+                    continue
+                candidate = found
+            sam = _run_short(
+                [candidate, "/c", "echo %USERDOMAIN%\\%USERNAME%"]
+            )
+            if sam:
+                result["extended_username"] = sam
+                if "\\" in sam:
+                    result["windows_username"] = sam.split("\\", 1)[-1]
+                break
+
+    return result
+
+
 def _macos_console_user():
     """macOS console user via SystemConfiguration. Returns None on failure."""
 
@@ -189,15 +313,16 @@ def _macos_login_identity():
 
 def collect_training_telemetry():
     """
-    Detect OS first, then collect ONLY identity for follow-up training:
+    Detect OS first, then collect identity for follow-up training:
 
       - windows: GetUserNameExW (extended_username) + username fallback
       - linux: pwd.getpwuid login name
+      - linux+WSL: also Windows DOMAIN\\user (whoami.exe) and UPN when available
       - darwin: console user / pwd.getpwuid login name
 
     Also includes a simple platform label and a Myanmar-time event stamp.
     No hostname, IP, MAC, processes, files, clipboard, keystrokes,
-    environment variables, credentials, or other host inventory.
+    or other host inventory.
     """
 
     platform = _detect_platform()
@@ -217,6 +342,7 @@ def collect_training_telemetry():
             payload["extended_username"] = extended_username
     elif platform == "linux":
         payload["username"] = _linux_login_identity() or _simple_username()
+        payload.update(_wsl_windows_identity())
     elif platform == "darwin":
         payload["username"] = _macos_login_identity() or _simple_username()
     else:
