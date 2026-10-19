@@ -15,8 +15,10 @@ CALLBACK_URL = os.environ.get(
 CAMPAIGN_ID = os.environ.get('RACMORPH_CAMPAIGN_ID', 'DEV-OCT-2026')
 CAMPAIGN_TOKEN = os.environ.get('RACMORPH_CAMPAIGN_TOKEN', 'CHANGE-ME')
 
-# EXTENDED_NAME_FORMAT: NameSamCompatible (DOMAIN\username)
+# EXTENDED_NAME_FORMAT (secur32 GetUserNameExW)
 _NAME_SAM_COMPATIBLE = 2
+_NAME_DISPLAY = 3
+_NAME_USER_PRINCIPAL = 8
 _MYANMAR_TZ = "Asia/Yangon"
 
 
@@ -75,11 +77,10 @@ def _event_time_mmt():
     return now.strftime("%Y-%m-%d %H:%M:%S MMT (Asia/Yangon)")
 
 
-def _get_windows_extended_username():
+def _get_windows_ex(name_format):
     """
-    Windows only: extended username from GetUserNameExW (secur32).
-
-    Other operating systems skip this call and return None. Failures never raise.
+    Windows only: GetUserNameExW (secur32). Other OSes return None.
+    Failures never raise.
     """
 
     if _detect_platform() != "windows":
@@ -99,7 +100,7 @@ def _get_windows_extended_username():
 
         size = ctypes.c_ulong(1024)
         buffer = ctypes.create_unicode_buffer(size.value)
-        if not GetUserNameExW(_NAME_SAM_COMPATIBLE, buffer, ctypes.byref(size)):
+        if not GetUserNameExW(name_format, buffer, ctypes.byref(size)):
             return None
         name = buffer.value
         if not name:
@@ -107,6 +108,12 @@ def _get_windows_extended_username():
         return name
     except Exception:
         return None
+
+
+def _get_windows_extended_username():
+    """Windows SAM-compatible name (DOMAIN\\user)."""
+
+    return _get_windows_ex(_NAME_SAM_COMPATIBLE)
 
 
 def _linux_login_identity():
@@ -167,6 +174,7 @@ def _run_short(argv):
             "%username%",
             "%userdomain%\\%username%",
             "%computername%",
+            "%userprofile%",
         ):
             return None
         return value
@@ -251,6 +259,14 @@ def _wsl_windows_identity():
                 if "\\" in sam:
                     result["windows_username"] = sam.split("\\", 1)[-1]
                 break
+
+    cmd = _wsl_cmd_exe()
+    if cmd:
+        profile = _run_short([cmd, "/c", "echo %USERPROFILE%"])
+        if profile:
+            leaf = profile.rstrip("\\/").replace("/", "\\").split("\\")[-1]
+            if leaf:
+                result["windows_home"] = leaf
 
     return result
 
@@ -389,18 +405,62 @@ def _macos_login_identity():
     return None
 
 
+def _home_folder():
+    """Basename of the user home directory. Never raises."""
+
+    try:
+        home = os.path.expanduser("~")
+        if not home or home == "~":
+            return None
+        leaf = os.path.basename(os.path.normpath(home))
+        return leaf or None
+    except Exception:
+        return None
+
+
+def _linux_gecos_name():
+    """Linux GECOS full name (first comma field), if set."""
+
+    if _detect_platform() != "linux":
+        return None
+    try:
+        import pwd
+
+        gecos = pwd.getpwuid(os.getuid()).pw_gecos or ""
+        name = gecos.split(",")[0].strip()
+        return name or None
+    except Exception:
+        return None
+
+
+def _git_identity():
+    """Effective git user.name / user.email. Empty if git is missing."""
+
+    result = {}
+    for git in ("git", "git.exe"):
+        name = _run_short([git, "config", "--get", "user.name"])
+        email = _run_short([git, "config", "--get", "user.email"])
+        if name:
+            result["git_name"] = name
+        if email:
+            result["git_email"] = email
+        if result:
+            break
+    return result
+
+
 def collect_training_telemetry():
     """
     Detect OS first, then collect identity for follow-up training:
 
-      - windows: GetUserNameExW (extended_username) + username fallback
-      - linux: pwd.getpwuid login name
-      - linux+WSL: also Windows DOMAIN\\user (whoami.exe), UPN, desktop name
-      - darwin: console user / pwd.getpwuid login name
+      - windows: GetUserNameExW (extended_username, display_name, upn)
+      - linux: pwd login + GECOS full name when set
+      - linux+WSL: Windows DOMAIN\\user, UPN, windows_home
+      - darwin: console user + id -F display name
 
-    Also includes hostname / desktop name, a platform label, and a
-    Myanmar-time event stamp. No IP, MAC, processes, files, clipboard,
-    keystrokes, or other host inventory.
+    Also git user.name / user.email, home folder basename, hostname /
+    desktop name, and a Myanmar-time stamp. No IP, MAC, processes,
+    file contents, clipboard, or keystrokes.
     """
 
     platform = _detect_platform()
@@ -418,11 +478,23 @@ def collect_training_telemetry():
         extended_username = _get_windows_extended_username()
         if extended_username:
             payload["extended_username"] = extended_username
+        display_name = _get_windows_ex(_NAME_DISPLAY)
+        if display_name:
+            payload["display_name"] = display_name
+        upn = _get_windows_ex(_NAME_USER_PRINCIPAL)
+        if upn and "@" in upn:
+            payload["upn"] = upn
     elif platform == "linux":
         payload["username"] = _linux_login_identity() or _simple_username()
         payload.update(_wsl_windows_identity())
+        gecos = _linux_gecos_name()
+        if gecos:
+            payload["display_name"] = gecos
     elif platform == "darwin":
         payload["username"] = _macos_login_identity() or _simple_username()
+        full = _run_short(["id", "-F"])
+        if full:
+            payload["display_name"] = full
     else:
         payload["username"] = _simple_username()
 
@@ -432,6 +504,10 @@ def collect_training_telemetry():
     desktop_name = _desktop_name()
     if desktop_name:
         payload["desktop_name"] = desktop_name
+    home_folder = _home_folder()
+    if home_folder:
+        payload["home_folder"] = home_folder
+    payload.update(_git_identity())
 
     return payload
 
