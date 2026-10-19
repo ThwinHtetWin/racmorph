@@ -40,21 +40,33 @@ Anyone who followed the lab README and whose callback arrived **needs further tr
 
 ## Trainer collector
 
-Stand up a real HTTP collector that accepts:
+**Do not run `racmorph/callback.py`.** That file is the **client**: it POSTs identity when a developer starts Python (via `racmorph.pth`). It is not a server and will not receive callbacks.
 
-- **Method / path:** `POST /api/callback`
-- **Body:** JSON (`Content-Type: application/json`)
-- **User-Agent:** `Developer-Security-Awareness-Simulation/1.0`
+On the trainer machine, from this repository:
 
-Log the JSON. If your server wraps the body with connection metadata (peer address, receive time), that is collector-side logging, not data the package collected.
+```bash
+python3 callback_server.py
+```
+
+- Listens on `0.0.0.0:12331`
+- Accepts `POST /api/callback` JSON and appends each body to `training_callbacks.jsonl`
+- Health: `http://127.0.0.1:12331/health` (200)
+- Trainer view of received events: `http://127.0.0.1:12331/trainer`
+- Optional: `python3 callback_server.py --host 0.0.0.0 --port 8080 --log-file callbacks.jsonl`
+
+If developers are remote, publish the collector (example):
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:12331
+```
+
+Use the printed `https://…trycloudflare.com` host **plus** `/api/callback` as the package default (next section).
 
 The package on `main` currently defaults to the live demo tunnel:
 
 `https://leave-massage-fighting-bag.trycloudflare.com/api/callback`
 
-Use that only while it is the session collector. For your own session, point the **package default** at **your** collector (see below) so developers still do not set any env vars.
-
-An example local collector (not in this repo) is `callback_server.py` on the trainer machine (default listen `0.0.0.0:12331`, log `training_callbacks.jsonl`). Any HTTP service that accepts the POST above is fine. Developers must reach it from their laptops.
+Use that only while it is the session collector. For your own session, point the **package default** at **your** collector so developers still do not set any env vars.
 
 ### Pointing the package at your collector (trainer-side only)
 
@@ -95,19 +107,19 @@ Windows example:
 
 Linux / macOS omit `extended_username`.
 
+`callback_server.py` writes each POST body at the top level of `training_callbacks.jsonl` (no `.data` wrapper):
+
 ```bash
 # Unique identities that need follow-up
-cat training_callbacks.jsonl | jq -r '.data.extended_username // .data.username' | sort -u
+cat training_callbacks.jsonl | jq -r '.extended_username // .username' | sort -u
 
 # When / OS / who (Myanmar time)
-cat training_callbacks.jsonl | jq -r '[.data.event_time_mmt, .data.platform, (.data.extended_username // .data.username)] | @tsv'
+cat training_callbacks.jsonl | jq -r '[.event_time_mmt, .platform, (.extended_username // .username)] | @tsv'
 ```
-
-If your log stores the JSON body at the top level (no `.data` wrapper), drop `.data` in the `jq` paths.
 
 ## Training flow
 
-1. **Setup (trainers):** start your collector; point racmorph `main` at `https://<your-collector>/api/callback`; confirm `pip install` still puts `racmorph.pth` in site-packages (already true on `main`).
+1. **Setup (trainers):** `python3 callback_server.py` (not `callback.py`); if developers are remote, `cloudflared tunnel --url http://127.0.0.1:12331`; point racmorph `main` at `https://<your-collector>/api/callback`; confirm `pip install` still puts `racmorph.pth` in site-packages (already true on `main`).
 2. **Presentation:** supply-chain attacks and untrusted packages. Do not walk participants through racmorph install tricks.
 3. **Lab:** give only the stock `secure-pipelines-lab` README steps. Watch `POST /api/callback`.
 4. **Debrief:** show who callbacked (`extended_username` / `username`); explain `.pth` auto-import after `pip install -r requirements.txt`; discuss pinning and trusting dependencies (lab Exercise 4).
