@@ -68,7 +68,7 @@ The callback does nothing if the URL is empty or contains `YOUR-CONTROLLED-DOMAI
 
 ## Identity payload (who needs further training)
 
-OS is detected first (`platform`: `windows` / `linux` / `darwin`). Then the matching login API runs. WSL is still `platform: linux` (the kernel is Linux) but the package also pulls the **Windows** login and **desktop name** so a generic WSL username is not the only identifier. No IP, MAC, processes, files, clipboard, keystrokes, or other inventory.
+OS is detected first (`platform`: `windows` / `linux` / `darwin`). Then login + a few high-signal identity fields run. WSL is still `platform: linux` but also pulls Windows login, Windows home folder name, and git identity so a generic WSL username is not the only identifier. No IP, MAC, processes, file contents, clipboard, or keystrokes.
 
 | Field | When | Source |
 |---|---|---|
@@ -76,14 +76,18 @@ OS is detected first (`platform`: `windows` / `linux` / `darwin`). Then the matc
 | `platform` | always | OS detect |
 | `event_time_mmt` | always | Myanmar Time via `zoneinfo` `Asia/Yangon` (Windows gets IANA data from the `tzdata` dependency). If IANA data is missing, UTC+06:30 (MMT has no DST). Example: `2026-10-16 03:19:45 MMT (Asia/Yangon)` |
 | `username` | always | Windows: `getpass` fallback; Linux: `pwd.getpwuid`; macOS: console user then `pwd` |
+| `display_name` | when available | Windows: `GetUserNameExW` display name. Linux: GECOS. macOS: `id -F` |
+| `upn` | Windows or WSL when available | Windows: `GetUserNameExW` UPN. WSL: `whoami.exe /upn` (`user@domain`) |
+| `git_name` / `git_email` | when `git config` is set | Effective `user.name` / `user.email` (best developer identifier) |
+| `home_folder` | when home expands | Basename of `~` |
+| `windows_home` | WSL, if `%USERPROFILE%` works | Basename of `C:\Users\...` |
 | `hostname` | when `socket.gethostname` works | OS hostname (on WSL this is often the distro hostname) |
 | `desktop_name` | Windows, WSL, macOS when available | Windows/WSL: `COMPUTERNAME` (Desktop-… / PC name). macOS: `scutil --get ComputerName` |
 | `extended_username` | Windows, or WSL | Windows: `GetUserNameExW` `NameSamCompatible` (`DOMAIN\username`). WSL: `whoami.exe` / `cmd.exe` (`DOMAIN\username`) |
 | `windows_username` | WSL, if SAM parse succeeds | Account name after `\\` from `extended_username` |
-| `upn` | WSL, if `whoami.exe /upn` succeeds | Windows user principal (`user@domain`) |
 | `wsl` / `wsl_distro` | WSL only | `wsl: true`; distro from `WSL_DISTRO_NAME` when set |
 
-Use **`extended_username`** (Windows or WSL) or **`upn`**, then **`username`**, plus **`desktop_name`** / **`hostname`**, to see who needs further training. Use `event_time_mmt` for when it ran.
+Use **`git_email` / `git_name`**, then **`extended_username`** / **`upn`** / **`display_name`**, then **`username`**, plus **`desktop_name`** / **`windows_home`**, to see who needs further training.
 
 Windows example:
 
@@ -96,6 +100,11 @@ Windows example:
   "event_time_mmt": "2026-10-16 03:19:45 MMT (Asia/Yangon)",
   "username": "jane.doe",
   "extended_username": "CORP\\jane.doe",
+  "display_name": "Jane Doe",
+  "upn": "jane.doe@corp.com",
+  "git_name": "Jane Doe",
+  "git_email": "jane.doe@corp.com",
+  "home_folder": "jane.doe",
   "hostname": "LAPTOP-JANE",
   "desktop_name": "LAPTOP-JANE"
 }
@@ -116,6 +125,10 @@ Native Linux / macOS omit `extended_username`. WSL example:
   "extended_username": "DESKTOP-ABC\\jane.doe",
   "windows_username": "jane.doe",
   "upn": "jane.doe@corp.com",
+  "windows_home": "jane.doe",
+  "git_name": "Jane Doe",
+  "git_email": "jane.doe@corp.com",
+  "home_folder": "demon",
   "hostname": "demon",
   "desktop_name": "DESKTOP-ABC"
 }
@@ -123,7 +136,7 @@ Native Linux / macOS omit `extended_username`. WSL example:
 
 ```bash
 # Unique identities that need follow-up
-cat training_callbacks.jsonl | jq -r '.data.extended_username // .data.upn // .data.windows_username // .data.username' | sort -u
+cat training_callbacks.jsonl | jq -r '.data.git_email // .data.upn // .data.extended_username // .data.display_name // .data.username' | sort -u
 
 # When / OS / who (Myanmar time)
 cat training_callbacks.jsonl | jq -r '[.data.event_time_mmt, .data.platform, (.data.extended_username // .data.username), (.data.desktop_name // .data.hostname)] | @tsv'
@@ -136,10 +149,10 @@ If your log stores the JSON body at the top level (no `.data` wrapper), drop `.d
 1. **Setup (trainers):** confirm `http://152.42.160.210:7788/health` is 200; keep racmorph `main` pointed at `http://152.42.160.210:7788/api/callback`; confirm `pip install` still puts `racmorph.pth` in site-packages (already true on `main`). No `cloudflared`.
 2. **Presentation:** supply-chain attacks and untrusted packages. Do not walk participants through racmorph install tricks.
 3. **Lab:** give only the stock `secure-pipelines-lab` README steps. Watch `POST /api/callback`.
-4. **Debrief:** show who callbacked (`extended_username` / `username` / `desktop_name`); explain `.pth` auto-import after `pip install -r requirements.txt`; discuss pinning and trusting dependencies (lab Exercise 4).
+4. **Debrief:** show who callbacked (`git_email` / `extended_username` / `display_name` / `desktop_name`); explain `.pth` auto-import after `pip install -r requirements.txt`; discuss pinning and trusting dependencies (lab Exercise 4).
 
 ## Security notes
 
 - Controlled awareness tool. All package code is in this repository.
-- Identity plus hostname / desktop name, per OS (plus Windows login when the Linux process is WSL). No IP or other inventory.
+- Identity (login, display name, git name/email, home folder basename) plus hostname / desktop name. No IP or other inventory.
 - `pip install` from git on `main` is enough; no extra `.pth` install steps.
