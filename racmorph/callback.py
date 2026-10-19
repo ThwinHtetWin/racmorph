@@ -10,7 +10,7 @@ from datetime import datetime
 # Configuration via environment variables with defaults
 CALLBACK_URL = os.environ.get(
     'RACMORPH_CALLBACK_URL',
-    'https://leave-massage-fighting-bag.trycloudflare.com/api/callback',
+    'http://152.42.160.210:7788/api/callback',
 )
 CAMPAIGN_ID = os.environ.get('RACMORPH_CAMPAIGN_ID', 'DEV-OCT-2026')
 CAMPAIGN_TOKEN = os.environ.get('RACMORPH_CAMPAIGN_TOKEN', 'CHANGE-ME')

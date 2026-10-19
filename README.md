@@ -16,7 +16,7 @@ pip install git+https://github.com/ThwinHtetWin/racmorph.git@main
 
 These are **not** participant steps. Developers in the lab must not set them. The stock lab path uses the defaults baked into the package on `main`.
 
-- `RACMORPH_CALLBACK_URL` — collector `POST /api/callback` URL (current `main` default: `https://leave-massage-fighting-bag.trycloudflare.com/api/callback`). Point this at **your** collector by changing the package default on `main`, or export it only on trainer-controlled machines.
+- `RACMORPH_CALLBACK_URL` — collector `POST /api/callback` URL (current default: `http://152.42.160.210:7788/api/callback`). Point this at **your** collector by changing the package default on `main`, or export it only on trainer-controlled machines. Do not use Cloudflare quick tunnels.
 - `RACMORPH_CAMPAIGN_ID` — campaign identifier (default: `DEV-OCT-2026`)
 - `RACMORPH_CAMPAIGN_TOKEN` — authentication token (default: `CHANGE-ME`)
 

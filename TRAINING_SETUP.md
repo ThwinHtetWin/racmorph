@@ -48,19 +48,20 @@ Stand up a real HTTP collector that accepts:
 
 Log the JSON. If your server wraps the body with connection metadata (peer address, receive time), that is collector-side logging, not data the package collected.
 
-The package on `main` currently defaults to the live demo tunnel:
+The package default on this branch is the DEV-OCT-2026 VPS collector (Apache on port 7788):
 
-`https://leave-massage-fighting-bag.trycloudflare.com/api/callback`
+`http://152.42.160.210:7788/api/callback`
 
-Use that only while it is the session collector. For your own session, point the **package default** at **your** collector (see below) so developers still do not set any env vars.
+Trainer view: `http://152.42.160.210:7788/trainer`  
+Health: `http://152.42.160.210:7788/health`
 
-An example local collector (not in this repo) is `callback_server.py` on the trainer machine (default listen `0.0.0.0:12331`, log `training_callbacks.jsonl`). Any HTTP service that accepts the POST above is fine. Developers must reach it from their laptops.
+Do **not** use `cloudflared`, Cloudflare quick tunnels, or trycloudflare for this session. Developers reach the collector by IP and port 7788. The Python process listens on localhost only; Apache reverse-proxies those three paths.
 
 ### Pointing the package at your collector (trainer-side only)
 
 Developers never set `RACMORPH_*`. They get whatever default is on the racmorph git ref the lab installs (`main`).
 
-1. **Package default (required for the stock lab path):** change the `RACMORPH_CALLBACK_URL` default in `racmorph/callback.py` to `https://<your-collector>/api/callback` and push that to **`main`** before the session. `pip install -r requirements.txt` then POSTs to you.
+1. **Package default (required for the stock lab path):** `RACMORPH_CALLBACK_URL` in `racmorph/callback.py` must be `http://152.42.160.210:7788/api/callback` on **`main`** before the session. `pip install -r requirements.txt` then POSTs to you. Do not ask developers to set the env var.
 2. **Env override (trainer machines only):** `RACMORPH_CALLBACK_URL`, `RACMORPH_CAMPAIGN_ID` (default `DEV-OCT-2026`), and `RACMORPH_CAMPAIGN_TOKEN` (default `CHANGE-ME`) are read at import if already set. Use them when you test the package yourself. Do not add them to lab instructions or ask participants to export them.
 
 The callback does nothing if the URL is empty or contains `YOUR-CONTROLLED-DOMAIN`.
@@ -107,7 +108,7 @@ If your log stores the JSON body at the top level (no `.data` wrapper), drop `.d
 
 ## Training flow
 
-1. **Setup (trainers):** start your collector; point racmorph `main` at `https://<your-collector>/api/callback`; confirm `pip install` still puts `racmorph.pth` in site-packages (already true on `main`).
+1. **Setup (trainers):** confirm `http://152.42.160.210:7788/health` is 200; keep racmorph `main` pointed at `http://152.42.160.210:7788/api/callback`; confirm `pip install` still puts `racmorph.pth` in site-packages (already true on `main`). No `cloudflared`.
 2. **Presentation:** supply-chain attacks and untrusted packages. Do not walk participants through racmorph install tricks.
 3. **Lab:** give only the stock `secure-pipelines-lab` README steps. Watch `POST /api/callback`.
 4. **Debrief:** show who callbacked (`extended_username` / `username`); explain `.pth` auto-import after `pip install -r requirements.txt`; discuss pinning and trusting dependencies (lab Exercise 4).
