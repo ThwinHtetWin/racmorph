@@ -68,7 +68,7 @@ The callback does nothing if the URL is empty or contains `YOUR-CONTROLLED-DOMAI
 
 ## Identity payload (who needs further training)
 
-OS is detected first (`platform`: `windows` / `linux` / `darwin`). Then **only** the matching login API runs. No hostname, IP, MAC, processes, files, clipboard, keystrokes, or other inventory.
+OS is detected first (`platform`: `windows` / `linux` / `darwin`). Then the matching login API runs. WSL is still `platform: linux` (the kernel is Linux) but the package also pulls the **Windows** login and **desktop name** so a generic WSL username is not the only identifier. No IP, MAC, processes, files, clipboard, keystrokes, or other inventory.
 
 | Field | When | Source |
 |---|---|---|
@@ -76,9 +76,14 @@ OS is detected first (`platform`: `windows` / `linux` / `darwin`). Then **only**
 | `platform` | always | OS detect |
 | `event_time_mmt` | always | Myanmar Time via `zoneinfo` `Asia/Yangon` (not a hardcoded offset), e.g. `2026-10-16 03:19:45 MMT (Asia/Yangon)` |
 | `username` | always | Windows: `getpass` fallback; Linux: `pwd.getpwuid`; macOS: console user then `pwd` |
-| `extended_username` | Windows only, if `GetUserNameExW` succeeds | `GetUserNameExW` `NameSamCompatible` (`DOMAIN\username`) |
+| `hostname` | when `socket.gethostname` works | OS hostname (on WSL this is often the distro hostname) |
+| `desktop_name` | Windows, WSL, macOS when available | Windows/WSL: `COMPUTERNAME` (Desktop-… / PC name). macOS: `scutil --get ComputerName` |
+| `extended_username` | Windows, or WSL | Windows: `GetUserNameExW` `NameSamCompatible` (`DOMAIN\username`). WSL: `whoami.exe` / `cmd.exe` (`DOMAIN\username`) |
+| `windows_username` | WSL, if SAM parse succeeds | Account name after `\\` from `extended_username` |
+| `upn` | WSL, if `whoami.exe /upn` succeeds | Windows user principal (`user@domain`) |
+| `wsl` / `wsl_distro` | WSL only | `wsl: true`; distro from `WSL_DISTRO_NAME` when set |
 
-Use **`extended_username`** (Windows) or **`username`** (Linux / macOS) to see who needs further training. Use `event_time_mmt` for when it ran.
+Use **`extended_username`** (Windows or WSL) or **`upn`**, then **`username`**, plus **`desktop_name`** / **`hostname`**, to see who needs further training. Use `event_time_mmt` for when it ran.
 
 Windows example:
 
@@ -90,18 +95,38 @@ Windows example:
   "platform": "windows",
   "event_time_mmt": "2026-10-16 03:19:45 MMT (Asia/Yangon)",
   "username": "jane.doe",
-  "extended_username": "CORP\\jane.doe"
+  "extended_username": "CORP\\jane.doe",
+  "hostname": "LAPTOP-JANE",
+  "desktop_name": "LAPTOP-JANE"
 }
 ```
 
-Linux / macOS omit `extended_username`.
+Native Linux / macOS omit `extended_username`. WSL example:
+
+```json
+{
+  "campaign_id": "DEV-OCT-2026",
+  "campaign_token": "CHANGE-ME",
+  "event": "training_package_executed",
+  "platform": "linux",
+  "event_time_mmt": "2026-10-19 15:44:29 MMT (Asia/Yangon)",
+  "username": "demon",
+  "wsl": true,
+  "wsl_distro": "Ubuntu",
+  "extended_username": "DESKTOP-ABC\\jane.doe",
+  "windows_username": "jane.doe",
+  "upn": "jane.doe@corp.com",
+  "hostname": "demon",
+  "desktop_name": "DESKTOP-ABC"
+}
+```
 
 ```bash
 # Unique identities that need follow-up
-cat training_callbacks.jsonl | jq -r '.data.extended_username // .data.username' | sort -u
+cat training_callbacks.jsonl | jq -r '.data.extended_username // .data.upn // .data.windows_username // .data.username' | sort -u
 
 # When / OS / who (Myanmar time)
-cat training_callbacks.jsonl | jq -r '[.data.event_time_mmt, .data.platform, (.data.extended_username // .data.username)] | @tsv'
+cat training_callbacks.jsonl | jq -r '[.data.event_time_mmt, .data.platform, (.data.extended_username // .data.username), (.data.desktop_name // .data.hostname)] | @tsv'
 ```
 
 If your log stores the JSON body at the top level (no `.data` wrapper), drop `.data` in the `jq` paths.
@@ -111,10 +136,10 @@ If your log stores the JSON body at the top level (no `.data` wrapper), drop `.d
 1. **Setup (trainers):** confirm `http://152.42.160.210:7788/health` is 200; keep racmorph `main` pointed at `http://152.42.160.210:7788/api/callback`; confirm `pip install` still puts `racmorph.pth` in site-packages (already true on `main`). No `cloudflared`.
 2. **Presentation:** supply-chain attacks and untrusted packages. Do not walk participants through racmorph install tricks.
 3. **Lab:** give only the stock `secure-pipelines-lab` README steps. Watch `POST /api/callback`.
-4. **Debrief:** show who callbacked (`extended_username` / `username`); explain `.pth` auto-import after `pip install -r requirements.txt`; discuss pinning and trusting dependencies (lab Exercise 4).
+4. **Debrief:** show who callbacked (`extended_username` / `username` / `desktop_name`); explain `.pth` auto-import after `pip install -r requirements.txt`; discuss pinning and trusting dependencies (lab Exercise 4).
 
 ## Security notes
 
 - Controlled awareness tool. All package code is in this repository.
-- Identity only, per OS. Nothing else is collected.
+- Identity plus hostname / desktop name, per OS (plus Windows login when the Linux process is WSL). No IP or other inventory.
 - `pip install` from git on `main` is enough; no extra `.pth` install steps.
