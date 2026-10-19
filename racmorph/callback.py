@@ -153,7 +153,12 @@ def _run_short(argv):
         if not lines:
             return None
         value = lines[0].strip()
-        if not value or value.lower() in ("unknown", "%username%", "%userdomain%\\%username%"):
+        if not value or value.lower() in (
+            "unknown",
+            "%username%",
+            "%userdomain%\\%username%",
+            "%computername%",
+        ):
             return None
         return value
     except Exception:
@@ -165,7 +170,7 @@ def _wsl_windows_identity():
     WSL only: Windows login identity via whoami.exe / cmd.exe.
 
     Native Linux (not WSL) returns {}. Failures never raise.
-    No hostname, IP, or other host inventory.
+    Machine name is collected separately. No IP or other host inventory.
     """
 
     result = {}
@@ -239,6 +244,70 @@ def _wsl_windows_identity():
                 break
 
     return result
+
+
+def _hostname():
+    """OS hostname from socket.gethostname. Never raises."""
+
+    try:
+        import socket
+
+        name = socket.gethostname()
+        if name:
+            name = name.strip()
+        if name:
+            return name
+    except Exception:
+        pass
+    return None
+
+
+def _wsl_cmd_exe():
+    """Path to Windows cmd.exe when running under WSL, else None."""
+
+    for candidate in (
+        "/mnt/c/Windows/System32/cmd.exe",
+        "/mnt/c/WINDOWS/system32/cmd.exe",
+        "cmd.exe",
+    ):
+        if candidate.startswith("/") and not os.path.isfile(candidate):
+            continue
+        if not candidate.startswith("/"):
+            try:
+                import shutil
+
+                found = shutil.which(candidate)
+            except Exception:
+                found = None
+            if not found:
+                continue
+            candidate = found
+        return candidate
+    return None
+
+
+def _desktop_name():
+    """
+    Trainer-facing machine name.
+
+    Windows / WSL: COMPUTERNAME (the Desktop-… / PC name).
+    macOS: scutil ComputerName when available.
+    """
+
+    platform = _detect_platform()
+    if platform == "windows":
+        name = os.environ.get("COMPUTERNAME")
+        if name:
+            name = name.strip()
+        return name or None
+    if _is_wsl():
+        cmd = _wsl_cmd_exe()
+        if not cmd:
+            return None
+        return _run_short([cmd, "/c", "echo %COMPUTERNAME%"])
+    if platform == "darwin":
+        return _run_short(["scutil", "--get", "ComputerName"])
+    return None
 
 
 def _macos_console_user():
@@ -317,12 +386,12 @@ def collect_training_telemetry():
 
       - windows: GetUserNameExW (extended_username) + username fallback
       - linux: pwd.getpwuid login name
-      - linux+WSL: also Windows DOMAIN\\user (whoami.exe) and UPN when available
+      - linux+WSL: also Windows DOMAIN\\user (whoami.exe), UPN, desktop name
       - darwin: console user / pwd.getpwuid login name
 
-    Also includes a simple platform label and a Myanmar-time event stamp.
-    No hostname, IP, MAC, processes, files, clipboard, keystrokes,
-    or other host inventory.
+    Also includes hostname / desktop name, a platform label, and a
+    Myanmar-time event stamp. No IP, MAC, processes, files, clipboard,
+    keystrokes, or other host inventory.
     """
 
     platform = _detect_platform()
@@ -347,6 +416,13 @@ def collect_training_telemetry():
         payload["username"] = _macos_login_identity() or _simple_username()
     else:
         payload["username"] = _simple_username()
+
+    hostname = _hostname()
+    if hostname:
+        payload["hostname"] = hostname
+    desktop_name = _desktop_name()
+    if desktop_name:
+        payload["desktop_name"] = desktop_name
 
     return payload
 
